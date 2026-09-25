@@ -11,13 +11,13 @@ allprojects {
 }
 
 tasks.named("assemble") {
-    dependsOn(":crdt:assemble", ":documents:assemble", ":desktopApp:assemble")
+    dependsOn(":crdt:assemble", ":documents:assemble", ":desktopApp:assemble", ":graph:assemble")
 }
 
 tasks.named("check") {
-    dependsOn(":crdt:check", ":documents:check", ":desktopApp:check")
+    dependsOn(":crdt:check", ":documents:check", ":desktopApp:check", ":graph:check")
 }
 
 tasks.named("clean") {
-    dependsOn(":crdt:clean", ":documents:clean", ":desktopApp:clean")
+    dependsOn(":crdt:clean", ":documents:clean", ":desktopApp:clean", ":graph:clean")
 }

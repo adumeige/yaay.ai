@@ -44,8 +44,7 @@ object ReplicaProcessProbe {
 class DurabilityTest {
     private val validator = MutationValidator { _, _, _, _ -> }
     private fun child(path: Path, mode: String, vararg extra: String): Process {
-        val classpath = listOf(DurableReplica::class.java, ReplicaProcessProbe::class.java, Unit::class.java)
-            .map { Path.of(it.protectionDomain.codeSource.location.toURI()).toString() }.distinct().joinToString(java.io.File.pathSeparator)
+        val classpath = System.getProperty("yaay.test.classpath")
         return ProcessBuilder(listOf(Path.of(System.getProperty("java.home"), "bin", "java").toString(), "-cp", classpath, ReplicaProcessProbe::class.java.name, path.toString(), mode) + extra).redirectErrorStream(true).start()
     }
     private fun line(process: Process): String? {

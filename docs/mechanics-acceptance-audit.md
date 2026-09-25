@@ -132,8 +132,9 @@ provided. Local directory/process results do not prove this required external ga
 - Chunks remain outside the journal, are verified before delivery, and are never
   automatically garbage-collected. No history compaction is implemented.
 - Batch commit results include workspace, author/counter token, vector and signed
-  operations for future projectors. YouTrackDB and the workflow interpreter remain
-  later milestones per the acceptance plan, not a second sync channel in this work.
+  operations for downstream services. M3 now implements embedded YouTrackDB and
+  Kotlin Flow projection; see [graph-projection-v1.md](graph-projection-v1.md). The
+  workflow interpreter remains a later milestone.
 
 The local requirement matrix is covered. The implementation goal is complete, with
 the separate-machine ordinary mounted-share release gate explicitly deferred by the

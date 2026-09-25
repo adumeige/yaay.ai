@@ -6,7 +6,7 @@ KMP structure is preserved. No layered-build workflow was used.
 
 ## Current evidence
 
-`./gradlew build` succeeds. The core/document suites contain **74 passing tests**:
+`./gradlew build` succeeds. The core/document/graph suites contain **84 passing tests**:
 
 | Suite | Tests | Main evidence |
 | --- | ---: | --- |
@@ -20,7 +20,10 @@ KMP structure is preserved. No layered-build workflow was used.
 | TypedEditTest | 14 | Nested/variant merges, map entries, tombstones, Unicode text, exact ordering, ownership cycles and deterministic structural schedules |
 | TypedSyncTest | 1 | Persistent typed Text/list/sum through both adapters |
 | MapKeyTest | 4 | Generic/algebraic keys, canonical identity and referenced content transfer |
-| PeerProcessTest | 3 | Headless CLI peers, complete typed/tombstone replay and concurrent relay JVMs |
+| PeerProcessTest | 4 | Headless CLI peers, complete typed/tombstone replay and concurrent relay JVMs and embedded graph CLI |
+| CommitFlowTest | 4 | Lossless slow-collector replay, restart cursor, remote dependency drain, atomic state and unsupported-frame freeze |
+| GraphProjectionTest | 4 | Embedded rollback/restart/rebuild, lag/retry/token waits, complete result flows and typed graph queries |
+| ProjectionProcessTest | 1 | Child JVM halts before/after transaction commit and staged generation installation; automatic cache recovery |
 
 The requirement-by-requirement evidence is in
 [mechanics-acceptance-audit.md](mechanics-acceptance-audit.md). Structural property
@@ -70,6 +73,6 @@ interruption/unmount and recovery and record the intended environment.
 Local temporary directories and multiple JVMs on one machine do not substitute for it.
 
 The implementation goal is complete with this external verification explicitly
-deferred by the user; full release acceptance is not claimed. YouTrackDB and workflow
-execution are later milestones under the acceptance plan; this work provides their signed
-mutation/commit-token foundation without introducing a separate messaging channel.
+deferred by the user; full release acceptance is not claimed. M3 now adds embedded
+YouTrackDB and Kotlin Flow services, documented in [graph-projection-v1.md](graph-projection-v1.md).
+Workflow execution remains a later milestone; graph notifications never authorize it.

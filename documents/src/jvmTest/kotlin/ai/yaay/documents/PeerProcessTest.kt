@@ -35,8 +35,7 @@ object TypedReplayProbe {
 
 class PeerProcessTest {
     private fun process(vararg args: String, main: String = PeerMain::class.java.name): Process {
-        val classpath = listOf(PeerMain::class.java, TypedReplayProbe::class.java, DurableReplica::class.java, Unit::class.java)
-            .map { Path.of(it.protectionDomain.codeSource.location.toURI()).toString() }.distinct().joinToString(java.io.File.pathSeparator)
+        val classpath = System.getProperty("yaay.test.classpath")
         return ProcessBuilder(listOf(Path.of(System.getProperty("java.home"), "bin", "java").toString(), "-cp", classpath, main) + args).redirectErrorStream(true).start()
     }
     private fun run(vararg args: String): String {
@@ -119,4 +118,17 @@ class PeerProcessTest {
             assertEquals(state, run(b, "cli", "state"))
         } finally { server?.destroyForcibly(); executor.shutdownNow(); root.toFile().deleteRecursively() }
     }
+    @Test fun embeddedGraphCommandsProjectAndRebuildWithoutChangingTheJournal() {
+        val root = Files.createTempDirectory("yaay-cli-graph-")
+        try {
+            run(root.toString(), "cli-graph", "init")
+            run(root.toString(), "cli-graph", "create-text", "projected content")
+            val journal = Files.readAllBytes(root.resolve("journal"))
+            assertTrue(run(root.toString(), "cli-graph", "graph-state").contains("projected content"))
+            assertTrue(run(root.toString(), "cli-graph", "graph-rebuild").contains("projected content"))
+            assertContentEquals(journal, Files.readAllBytes(root.resolve("journal")))
+            assertTrue(Files.exists(root.resolve("graph/CURRENT")))
+        } finally { root.toFile().deleteRecursively() }
+    }
+
 }

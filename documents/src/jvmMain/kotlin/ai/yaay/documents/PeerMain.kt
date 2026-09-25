@@ -1,6 +1,8 @@
 package ai.yaay.documents
 
 import ai.yaay.crdt.*
+import ai.yaay.graph.*
+import kotlinx.coroutines.*
 import ai.yaay.documents.types.*
 import java.net.InetSocketAddress
 import java.net.URI
@@ -17,7 +19,7 @@ public object PeerMain {
         }
     }
     private fun execute(args: List<String>) {
-        require(args.size >= 3) { "Usage: <store> <workspace> <init|init-private|info|admit|exclude|create-text|edit-text|state|sync-http|serve|publish|poll> [arguments]" }
+        require(args.size >= 3) { "Usage: <store> <workspace> <init|init-private|info|admit|exclude|create-text|edit-text|state|sync-http|serve|publish|poll|graph-state|graph-rebuild> [arguments]" }
         val path = Path.of(args[0])
         val workspace = args[1]
         val command = args[2]
@@ -61,6 +63,21 @@ public object PeerMain {
                     val snapshot = replica.snapshot()
                     snapshot.objects.keys.sorted().forEach { println("$it\t${snapshot.genericValue(it)}") }
                     println("frontier=${snapshot.frontier.counters.toSortedMap()}")
+                }
+                "graph-state", "graph-rebuild" -> runBlocking {
+                    val projection = GraphProjection(replica, typedGraphStore(path.resolve("graph"), replica), this)
+                    try {
+                        // CLI commands show the complete current local state, not an arbitrary lagging cache.
+                        replica.history().lastOrNull { it.batch.version == 1 && it.batch.operations.none { op -> op is Operation.Unknown } }
+                            ?.let { withTimeout(30_000) { projection.await(it.commitToken()) } }
+                        if (command == "graph-rebuild") projection.rebuild()
+                        val query = GraphQuery.Objects()
+                        fun printResult(result: GraphResult) {
+                            result.objects.forEach { println("${it.id}\t${it.type}\t${it.text}") }
+                            println("frontier=${result.checkpoint.frontier.counters.toSortedMap()}")
+                        }
+                        printResult(withTimeout(30_000) { projection.read(query) })
+                    } finally { projection.close() }
                 }
                 "sync-http" -> {
                     require(rest.size == 2) { "sync-http requires the pinned remote public key and endpoint URL" }

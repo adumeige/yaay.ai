@@ -1,0 +1,117 @@
+YAAY.AI — FOLLOW-UP HANDOFF
+Updated: 2026-09-25
+
+CURRENT STATE
+CRDT, typed documents, durable storage, HTTP/directory transport and sync are
+implemented. M3 (embedded YouTrackDB graph read model) is also implemented, with
+Kotlin Flow APIs for downstream services. Workflow execution is not implemented.
+The desktop application still displays its initial welcome UI.
+
+The latest implementation changes are present in the working tree, including
+untracked graph module files; they have not been committed by the assistant.
+Inspect git status before continuing and preserve existing work.
+
+USER DECISIONS
+- Use embedded YouTrackDB for V1, not a separate database server.
+- Use Kotlin Flow for reactive downstream services, retaining one serialized
+  writer per client. Complete transactions are the observation boundary.
+- The separate-machine SMB/NFS acceptance test is deferred to the user's later
+  manual testing. Do not claim it passed or block further implementation on it.
+- For the foundation implementation, the user explicitly rejected layered-build
+  and the documents' prescribed action order. The existing Gradle/KMP structure
+  was retained; do not migrate to Maven based on the old planning prompt.
+
+IMPLEMENTED FOUNDATIONS
+- Signed causal batches, retained-history CRDT resolution, dependency buffering,
+  deduplication, typed validation, membership and unsupported-protocol freeze.
+- Scalar/record/map/list/text/sum values, nominal and generic types, references,
+  tombstones and immutable algebraic map keys.
+- Durable journal and identity, exclusive writer lock, atomic bootstrap, crash
+  recovery and immutable hash-verified blob chunks.
+- HTTP and mounted-directory adapters use the same signed batch ingestion path.
+  TypedSync includes content referenced inside map keys.
+
+REACTIVE AND GRAPH APIS
+- crdt/.../Commits.kt: CommitToken, CommittedBatch and ReplicaState.
+- DurableReplica.states(): initial/current complete authoritative state; slow
+  collectors may skip intermediate snapshots.
+- DurableReplica.commits(after): retained-history replay followed by live durable
+  commits, with an independent cursor per collector. Wakeups may coalesce but
+  accepted batches are not dropped. Each batch carries its resolved snapshot.
+  This is replayable delivery, not exactly-once external side effects.
+- graph commonMain: GraphReadModel, GraphStore, GraphQuery and GraphCheckpoint.
+- GraphProjection: asynchronous serialized projection, status Flow, complete
+  query-result Flow, token-aware read/await, retry and rebuild.
+- EmbeddedYouTrackGraph: disk database, object/type indexes, containment/reference
+  edges, atomic state/checkpoint transactions and checkpoint readback validation.
+- documents/.../TypedGraph.kt: typedGraphStore includes map-key references.
+- CLI commands graph-state and graph-rebuild operate on an initialized replica.
+
+IMPORTANT INVARIANTS
+The CRDT journal is authoritative; the graph is disposable. Durable commits do
+not wait for graph projection. Graph notifications must never authorize workflow
+execution. Future workflow decisions must validate and commit against authoritative
+run state. A missing graph result is not proof of authoritative deletion.
+
+Application coroutines should run blocking replica commits and database opening
+on Dispatchers.IO. Close the projector before closing its replica. Cancelling a
+collector/wait does not undo a durable commit. Use caller timeouts for token waits.
+
+GRAPH DEPENDENCY AND RECOVERY
+Pinned embedded artifact:
+io.youtrackdb:youtrackdb-embedded:0.5.0-20260924.231536-66569b2-dev-20260924.232310-1
+Repository: https://central.sonatype.com/repository/maven-snapshots/
+Kotlin coroutines: 1.11.0. JDK toolchain: 21.
+
+This is a YouTrackDB development build. Process-crash tests exposed a storage
+allocation error after recovery, and a transaction helper that can log a commit
+failure without throwing it. The adapter verifies the stored checkpoint before
+publishing success. After three consecutive failures, the projector rebuilds from
+authoritative state into a fresh database generation. Explicit rebuild uses the
+same staging path: close/flush, reopen/verify, atomically install CURRENT.
+
+The graph's batched WAL flush can recover an earlier complete checkpoint after
+abrupt process exit; missing projections replay from the journal. Previous/failed
+generations are retained for diagnosis. With the replica stopped, its graph/
+cache may be removed and reconstructed. Never delete its identity or journal as
+part of graph recovery. Full-snapshot projection and linear text matching are V1
+choices; large-workspace performance has not been established.
+
+VERIFICATION
+Latest code verification: ./gradlew build — PASS, 84 tests, zero failures/errors.
+Environment: Linux, JDK 21 Gradle toolchain.
+
+New coverage includes lossless slow-collector replay and restart cursors, remote
+dependency drain, unsupported-frame freeze, graph rollback/retry, token waits,
+complete-result flows, typed graph queries, CLI projection/rebuild, and real child
+JVM halts before/after transaction commit and database-generation installation.
+These are process-crash tests, not storage-device power-loss tests.
+
+The directory adapter requires secure directory handles, verified on Linux.
+Windows provider support and real separate-machine mounted-share behavior are
+not claimed. The user will manually test an ordinary SMB/NFS share, including
+interruption, unmount, recovery and convergence across two machines.
+
+NEXT DEVELOPMENT STEP
+Implement the workflow execution milestone using the existing typed CRDT mutation
+and sync mechanisms. Start from the current workflow specification: a single-owner
+interpreter and a remote pinned worker exchanging signed typed request/result
+records. Only the owner commits advancement. Consume authoritative state through
+Flow; do not turn graph refreshes into execution triggers or introduce a second
+messaging protocol. No workflow implementation has been started in this change.
+
+FOLLOW-UP READING
+- docs/core-engine-specification-v1.md — domain and workflow contracts
+- docs/crdt-storage-sync-design-v1.md — authority, persistence and sync contracts
+- docs/codex-implementation-plan-v1.md — milestone descriptions; see user decisions
+- docs/mechanics-protocol-v1.md — implemented encodings and transport rules
+- docs/mechanics-implementation-status.md — implementation and test inventory
+- docs/mechanics-acceptance-audit.md — foundation requirement coverage
+- docs/graph-projection-v1.md — Flow usage, embedded graph design and limitations
+- docs/headless-peer.md — runnable CLI and manual peer-testing instructions
+
+USEFUL COMMANDS
+./gradlew build
+./gradlew :crdt:jvmTest :documents:jvmTest :graph:jvmTest
+./gradlew :documents:runPeer --args='/path/to/replica WORKSPACE graph-state'
+./gradlew :documents:runPeer --args='/path/to/replica WORKSPACE graph-rebuild'

@@ -103,3 +103,19 @@ simulate a storage device losing power or replace the separate-machine share gat
 When embedding the libraries, combine `TypedMutationValidator` with
 `typedSyncEndpoint(replica, blobStore)`. The typed endpoint discovers content
 references inside canonical map keys as well as the ordinary CRDT value references.
+
+## Embedded graph read model
+
+On an initialized local store:
+
+```sh
+./gradlew :documents:runPeer --args='/tmp/yaay-a demo graph-state'
+./gradlew :documents:runPeer --args='/tmp/yaay-a demo graph-rebuild'
+```
+
+Both commands wait for the current local journal to be projected. `graph-rebuild`
+stages and installs a fresh database generation without changing that journal.
+The database lives under the local store's `graph/` directory and runs embedded;
+no server is needed. The graph directory is disposable and must not be synchronized
+as a mutable database. See [graph-projection-v1.md](graph-projection-v1.md) for the
+Kotlin Flow service API, replay semantics and recovery limits.

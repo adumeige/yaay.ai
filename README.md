@@ -7,10 +7,12 @@ A local-first workspace, built with Kotlin Multiplatform and Compose Multiplatfo
 | Module | Responsibility |
 | --- | --- |
 | `crdt` | Platform-independent CRDT primitives and merge semantics |
+| `graph` | Application query SPI, embedded YouTrackDB projection and reactive reads |
 | `documents` | Documents and blocks, type system, and built-in type definitions |
 | `desktopApp` | Compose desktop application |
 
-Dependencies flow from `desktopApp` → `documents` → `crdt`. Libraries use
+Dependencies flow from `desktopApp` → `documents` → `crdt`, with the JVM document
+integration using `graph` → `crdt`. Libraries use
 `commonMain` and `commonTest`, with JVM as the initial target. Additional targets
 can be added when needed; no Android, browser, or native SDK is required.
 The desktop entry point lives in `jvmMain`, with UI in `commonMain`.
@@ -22,6 +24,9 @@ hash-verified binary chunks. Implementation is complete; the separate-machine
 SMB/NFS acceptance gate is deferred to later manual testing.
 See [implementation status](docs/mechanics-implementation-status.md) for verified
 behavior and remaining acceptance work.
+
+The [embedded graph and Flow API](docs/graph-projection-v1.md) provide the M3 read
+model, token-aware reads, complete-result subscriptions and crash-safe rebuilding.
 
 Runnable headless peer commands are documented in [headless-peer.md](docs/headless-peer.md).
 The [protocol specification](docs/mechanics-protocol-v1.md) and
@@ -43,7 +48,7 @@ On Windows, use `gradlew.bat` instead of `./gradlew`.
 
 ```sh
 # Run merge, type, signing, process-recovery, HTTP, and directory tests.
-./gradlew :crdt:jvmTest :documents:jvmTest
+./gradlew :crdt:jvmTest :documents:jvmTest :graph:jvmTest
 
 # Package for the current OS (requires its native packaging tools).
 ./gradlew :desktopApp:packageDistributionForCurrentOS

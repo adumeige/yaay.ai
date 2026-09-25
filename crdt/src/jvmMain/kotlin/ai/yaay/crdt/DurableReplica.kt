@@ -1,5 +1,7 @@
 package ai.yaay.crdt
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.*
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
@@ -98,6 +100,45 @@ public class DurableReplica private constructor(
     private val crypto: JvmBatchCrypto,
 ) : AutoCloseable {
     private var closed: Boolean = false
+    private data class Revision(val value: Long, val closed: Boolean = false)
+    private val revision = MutableStateFlow(Revision(0))
+    private fun changed() { revision.value = Revision(revision.value.value + 1, closed) }
+
+    /** Complete snapshots, conflated for slow consumers; ends when this replica closes. */
+    public fun states(): Flow<ReplicaState> = revision.transformWhile { signal ->
+        val state = synchronized(this) {
+            if (closed) null else ReplicaState(snapshot(), engine.readOnly)
+        }
+        if (state != null) emit(state)
+        !signal.closed && state != null
+    }.distinctUntilChanged().flowOn(Dispatchers.IO)
+
+    /**
+     * Lossless accepted-batch stream backed by retained history, not a bounded event bus.
+     * Each collector replays from its own causal cursor, then follows new durable commits.
+     * Slow collectors never block the writer. Cancellation releases the collector only.
+     * Unsupported batches are retained by the journal but never emitted as applied commits.
+     */
+    public fun commits(after: Frontier = Frontier()): Flow<CommittedBatch> {
+        val start = Frontier(after.counters.toMap())
+        return flow {
+            var cursor = start
+            revision.transformWhile { signal -> emit(signal); !signal.closed }.collect {
+                val history = synchronized(this@DurableReplica) {
+                    engine.history.filter { it.batch.version == 1 && it.batch.operations.none { op -> op is Operation.Unknown } }
+                }
+                val prefix = mutableListOf<Batch>()
+                for (signed in history) {
+                    prefix.add(signed.batch)
+                    if (!cursor.contains(signed.batch.id)) {
+                        emit(CommittedBatch(copy(signed), Resolver.resolve(prefix).detached()))
+                        cursor = Frontier(cursor.counters + (signed.batch.id.author to signed.batch.id.counter))
+                    }
+                }
+            }
+        }.flowOn(Dispatchers.IO)
+    }
+
     public val author: String get() = engine.author
     public val workspace: String get() = engine.workspace
     public val founder: String get() = engine.founder
@@ -114,15 +155,16 @@ public class DurableReplica private constructor(
         // Detach caller-owned mutable lists/maps through the canonical representation before retaining them.
         val counter = engine.snapshot.frontier[author] + 1
         val detached = copy(SignedBatch(Batch(workspace, 1, BatchId(author, counter), Frontier(mapOf(author to counter)), operations), "", emptyList())).batch.operations
-        return copy(engine.commit(detached))
+        return try { copy(engine.commit(detached)) } finally { changed() }
     }
-    @Synchronized public fun bootstrap(batches: List<SignedBatch>, publisher: String) { ensureOpen(); engine.bootstrap(batches.map(::copy), publisher) }
-    @Synchronized public fun ingest(batch: SignedBatch, publisher: String): IngestResult { ensureOpen(); return engine.ingest(copy(batch), publisher) }
+    @Synchronized public fun bootstrap(batches: List<SignedBatch>, publisher: String) { ensureOpen(); try { engine.bootstrap(batches.map(::copy), publisher) } finally { changed() } }
+    @Synchronized public fun ingest(batch: SignedBatch, publisher: String): IngestResult { ensureOpen(); return try { engine.ingest(copy(batch), publisher) } finally { changed() } }
     private fun ensureOpen() { check(!closed) { "Replica closed" } }
     private fun copy(batch: SignedBatch): SignedBatch = BatchCodec.decode(BatchCodec.encode(batch))
     @Synchronized override fun close() {
         if (!closed) {
             closed = true
+            changed()
             try { journal.close() } finally { try { lock.release() } finally { lockChannel.close() } }
         }
     }

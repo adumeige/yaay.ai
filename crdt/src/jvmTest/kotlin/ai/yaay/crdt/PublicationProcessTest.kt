@@ -33,7 +33,7 @@ class PublicationProcessTest {
                     a.commit { id, _ -> listOf(Operation.Create(id(0), "text", Shape.TEXT), Operation.EditText(id(0), null, "complete")) }
                     a.snapshot()
                 }
-                val classpath = listOf(PublicationProbe::class.java, DurableReplica::class.java, Unit::class.java).map { Path.of(it.protectionDomain.codeSource.location.toURI()).toString() }.distinct().joinToString(java.io.File.pathSeparator)
+                val classpath = System.getProperty("yaay.test.classpath")
                 val process = ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(), "-cp", classpath, PublicationProbe::class.java.name, source.toString(), share.toString(), boundary.name).redirectErrorStream(true).start()
                 try {
                     assertEquals(boundary.name, executor.submit<String> { process.inputStream.bufferedReader().readLine() }.get(15, TimeUnit.SECONDS))

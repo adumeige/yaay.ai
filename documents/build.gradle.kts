@@ -8,6 +8,7 @@ kotlin {
     explicitApi()
 
     sourceSets {
+        jvmMain.dependencies { api(project(":graph")) }
         commonMain.dependencies {
             implementation(project(":crdt"))
         }
@@ -24,4 +25,9 @@ tasks.register<JavaExec>("runPeer") {
     classpath(compilation.output.allOutputs, compilation.runtimeDependencyFiles)
     mainClass.set("ai.yaay.documents.PeerMain")
     standardInput = System.`in`
+}
+
+// Child JVM fault tests need the same complete runtime classpath as the test worker.
+tasks.withType<Test>().configureEach {
+    doFirst { systemProperty("yaay.test.classpath", classpath.asPath) }
 }
