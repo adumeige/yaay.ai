@@ -102,14 +102,21 @@ command examples. Tests call the production resolver, validator and ingestion co
 
 Publisher termination before readiness, partial temporary payloads, termination after
 ready publication, restart/republication and concurrent separate-process relays now
-have executable tests. Actual mounted-share denial/unmount and restoration remain. Static malicious paths, symlinks and concurrent publisher-directory replacement are
+have executable tests. Local permission denial and restoration and a missing share or
+workspace area are tested (`deniedShareAccessKeepsLocalCommitsAndRecoversWhenRestored`,
+`pollReportsAMissingShareOrWorkspaceAreaAsDeferred`); actual mounted-share unmount and
+restoration remain. Static malicious paths, symlinks and concurrent publisher-directory replacement are
 tested. Descendant I/O uses pinned secure directory handles and cannot be redirected
 by replacing an opened path. Providers without these handles are refused explicitly;
 the configured mount root itself remains trusted local configuration.
 
 HTTP fault coverage includes simultaneous sessions, signed stale inventory, truncated
 response, delayed body deadline, outbound-only initiating peer, direct exclusion and
-admitted relay. HTTP confidential transport is available through an HTTPS proxy;
+admitted relay. `HostilePeerTest` covers the initiating client's own response checks:
+replayed session, response from a different admitted peer, batch bytes not matching the
+requested hash, stalled or unsorted inventory pages, and an oversized HTTP body.
+`CodecTest` round-trips every atom and operation kind and fuzzes the batch and envelope
+decoders: mutated bytes are rejected or canonical and never verify. HTTP confidential transport is available through an HTTPS proxy;
 the embedded listener uses HTTP and does not claim encryption.
 
 The ordinary network-share release gate is **not run**. `findmnt -t nfs,nfs4,cifs`

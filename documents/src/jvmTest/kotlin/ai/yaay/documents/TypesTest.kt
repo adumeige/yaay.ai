@@ -68,7 +68,9 @@ class TypesTest {
         val r = replica()
         val a = r.nextId(0)
         val b = r.nextId(1)
-        assertFailsWith<IllegalArgumentException> { r.commit(listOf(TypeEncoding.publish(a, TypeDefinition(emptyList(), true, Type.Named(b))), TypeEncoding.publish(b, TypeDefinition(emptyList(), true, Type.Named(a))))) }
+        val cycle = assertFailsWith<IllegalArgumentException> { r.commit(listOf(TypeEncoding.publish(a, TypeDefinition(emptyList(), true, Type.Named(b))), TypeEncoding.publish(b, TypeDefinition(emptyList(), true, Type.Named(a))))) }
+        // The cycle itself must be named, not merely caught later by the expansion depth limit.
+        assertTrue(cycle.message.orEmpty().startsWith("Alias cycle"), cycle.message)
         assertTrue(r.history.isEmpty())
         val remoteKey = JvmBatchCrypto.generate()
         r.commit(listOf(Operation.Membership(remoteKey.author, true)))
@@ -76,6 +78,27 @@ class TypesTest {
         val invalid = remoteKey.sign(Batch("types", 1, id, Frontier(r.snapshot.frontier.counters + (remoteKey.author to 1L)), listOf(Operation.Create(OpId(id, 0).stableId(), TypeEncoding.encode(Type.Scalar.BOOLEAN), Shape.REGISTER, mapOf("value" to Atom.Str("wrong"))))))
         val before = r.snapshot
         assertFailsWith<IllegalArgumentException> { r.ingest(invalid, remoteKey.author) }
+        assertEquals(before, r.snapshot)
+    }
+
+    @Test fun oneEmbeddedInstanceCannotFillTwoSlotsLocallyOrFromAPeer() {
+        val r = replica()
+        val child = Type.Record(mapOf("label" to Type.Scalar.STRING))
+        val parent = Type.Record(mapOf("left" to child, "right" to child))
+        fun sharing(id: BatchId) = listOf(
+            Operation.Create(OpId(id, 0).stableId(), TypeEncoding.encode(child), Shape.RECORD, mapOf("label" to Atom.Str("shared"))),
+            Operation.Create(OpId(id, 1).stableId(), TypeEncoding.encode(parent), Shape.RECORD, mapOf("left" to Atom.Instance(OpId(id, 0).stableId()), "right" to Atom.Instance(OpId(id, 0).stableId()))),
+        )
+        val local = assertFailsWith<IllegalArgumentException> { r.commit(sharing(BatchId(r.author, 1))) }
+        assertEquals("An embedded instance cannot be shared between slots", local.message)
+        assertTrue(r.history.isEmpty())
+        val remoteKey = JvmBatchCrypto.generate()
+        r.commit(listOf(Operation.Membership(remoteKey.author, true)))
+        val id = BatchId(remoteKey.author, 1)
+        val incoming = remoteKey.sign(Batch("types", 1, id, Frontier(r.snapshot.frontier.counters + (remoteKey.author to 1L)), sharing(id)))
+        val before = r.snapshot
+        val remote = assertFailsWith<IllegalArgumentException> { r.ingest(incoming, remoteKey.author) }
+        assertEquals("An embedded instance cannot be shared between slots", remote.message)
         assertEquals(before, r.snapshot)
     }
 }

@@ -1,7 +1,7 @@
 # Running a headless peer
 
 The `documents:runPeer` JVM task exposes the production typed mutation, journal,
-HTTP and directory adapters. It uses JDK 21 and the existing Gradle wrapper.
+HTTP and directory adapters. It uses JDK 25 and the existing Gradle wrapper.
 Each store directory has one persisted connection identity and one exclusive
 writer. Stop a serving process before opening that same store in another command.
 
@@ -57,8 +57,9 @@ see the same ordinary mounted directory; each may use its own local mount path.
 ```
 
 The directory adapter currently requires a filesystem provider exposing secure
-directory handles (tested on Linux/JDK 21). Unsupported providers are refused;
-Windows directory-provider support is not claimed.
+directory handles (tested on Linux/JDK 21 and macOS/JDK 25; the macOS provider
+lacks them on JDK 21). Unsupported providers are refused; Windows directory-provider
+support is not claimed.
 
 Repeat polling/publication after reconnects. An incomplete or corrupt ready candidate
 is diagnosed and retried; orphan temporary files are ignored. Publication areas are

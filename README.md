@@ -35,7 +35,7 @@ and verification limits, including the unrun separate-machine mounted-share gate
 
 ## Development
 
-Install JDK 21 and make it available to Gradle (normally through `JAVA_HOME`).
+Install JDK 25 and make it available to Gradle (normally through `JAVA_HOME`).
 The checked-in Gradle wrapper supplies Gradle 9.2.1; no global Gradle install is needed.
 Plugin versions are pinned in `gradle/libs.versions.toml`.
 
@@ -50,6 +50,9 @@ On Windows, use `gradlew.bat` instead of `./gradlew`.
 # Run merge, type, signing, process-recovery, HTTP, and directory tests.
 ./gradlew :crdt:jvmTest :documents:jvmTest :graph:jvmTest
 
+# Explore beyond the fixed seeds of the randomized convergence tests (failures print the seed).
+./gradlew :crdt:jvmTest :documents:jvmTest -Pyaay.test.seeds=500 -Pyaay.test.seedStart=$RANDOM
+
 # Package for the current OS (requires its native packaging tools).
 ./gradlew :desktopApp:packageDistributionForCurrentOS
 ```
@@ -57,8 +60,9 @@ On Windows, use `gradlew.bat` instead of `./gradlew`.
 Native installers must be built on their target OS: DMG on macOS, MSI on Windows,
 and DEB on Linux. `build` compiles the desktop application without creating an installer.
 Behavioral tests include seeded reordered histories, signature and compatibility
-checks, typed mutation validation, separate JVM writer/recovery tests, and shared
-transport scenarios. Directory tests currently run on a local filesystem; they do
+checks, typed mutation validation, separate JVM writer/recovery tests, shared
+transport scenarios, hostile-responder tests for the sync client, and byte-level
+fuzzing of the batch and envelope decoders. Directory tests currently run on a local filesystem; they do
 not establish the required separate-machine mounted-share release gate.
 
 ## Design

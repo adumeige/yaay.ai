@@ -120,5 +120,32 @@ class GraphProjectionTest {
             assertFails { projection.read(GraphQuery.Objects()) }
         }
     }
-
+    @Test fun rootsExcludeEmbeddedPlacedAndDeletedObjectsAndTypeFilterMatchesExactly() {
+        val root = Files.createTempDirectory("yaay-graph-roots-")
+        try {
+            replica(root.resolve("replica")).use { replica ->
+                val child = Type.Record(mapOf("label" to Type.Scalar.STRING))
+                var text = ""; var record = ""; var list = ""; var removed = ""; var element = ""
+                replica.commit { id, before -> TypedEdit(id, before).apply {
+                    text = create(Type.Scalar.TEXT, Value.Text("root"))
+                    record = create(Type.Record(mapOf("child" to child)), Value.Record(mapOf("child" to Value.Record(mapOf("label" to Value.Atomic(Atom.Str("embedded")))))))
+                    list = create(Type.Sequence(Type.Scalar.STRING), Value.Sequence(emptyList()))
+                    removed = create(Type.Scalar.TEXT, Value.Text("removed"))
+                }.operations }
+                replica.commit { id, before -> TypedEdit(id, before).apply { element = insert(list, null, Value.Atomic(Atom.Str("item"))); delete(removed) }.operations }
+                EmbeddedYouTrackGraph(root.resolve("graph"), replica.workspace, replica.founder).use { store ->
+                    val snapshot = replica.snapshot()
+                    store.replace(snapshot)
+                    val embedded = (snapshot[record].fields["child"] as Atom.Instance).id
+                    val roots = store.query(GraphQuery.Roots).objects.map { it.id }
+                    assertEquals(listOf(list, record, text).sorted(), roots)
+                    assertTrue(embedded !in roots && element !in roots && removed !in roots)
+                    val textType = TypeEncoding.encode(Type.Scalar.TEXT)
+                    assertEquals(listOf(text), store.query(GraphQuery.Objects(type = textType)).objects.map { it.id })
+                    assertEquals(listOf(removed, text).sorted(), store.query(GraphQuery.Objects(type = textType, includeDeleted = true)).objects.map { it.id })
+                    assertTrue(store.query(GraphQuery.Objects(type = "no-such-type")).objects.isEmpty())
+                }
+            }
+        } finally { root.toFile().deleteRecursively() }
+    }
 }

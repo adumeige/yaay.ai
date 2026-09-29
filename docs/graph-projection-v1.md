@@ -123,7 +123,7 @@ and staged rebuilding cover this observed failure. Ordinary graph transactions u
 the database's batched WAL flush: an abrupt process halt can lose the latest cache
 transaction, which is then replayed from the durable CRDT journal.
 
-Tests run on Linux/JDK 21 against real embedded disk databases and child JVMs. They
+Tests run on Linux/JDK 21 and macOS/JDK 25 against real embedded disk databases and child JVMs. They
 cover atomic rollback, lag/retry, token waiting, complete query snapshots, typed
 references/tombstones/order, restart, explicit rebuild, automatic recovery, and
 process halts before/after both transaction commit and generation installation.

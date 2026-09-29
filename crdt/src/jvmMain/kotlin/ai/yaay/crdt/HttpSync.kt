@@ -4,12 +4,15 @@ import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
 import java.net.URI
 import java.net.http.HttpClient
+import java.net.http.HttpTimeoutException
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 import java.util.concurrent.Executors
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.Flow
 import java.util.concurrent.TimeUnit
 import java.nio.ByteBuffer
@@ -56,7 +59,11 @@ public class HttpExchangeConnection(
         val request = HttpRequest.newBuilder(uri).timeout(timeout).header("Content-Type", "application/vnd.yaay.sync-v1").POST(HttpRequest.BodyPublishers.ofByteArray(bytes)).build()
         val future = client.sendAsync(request, HttpResponse.BodyHandler { BoundedBody() })
         try {
-            val response = future.get(timeout.toMillis(), TimeUnit.MILLISECONDS)
+            // The JDK's own request timeout may fire first (newer JDKs also apply it to the body); report either as a timeout.
+            val response = try { future.get(timeout.toMillis(), TimeUnit.MILLISECONDS) } catch (failure: ExecutionException) {
+                val cause = failure.cause
+                throw if (cause is HttpTimeoutException) TimeoutException(cause.message).apply { initCause(cause) } else failure
+            }
             require(response.statusCode() == 200) { "HTTP synchronization failed: ${response.statusCode()}" }
             return response.body()
         } finally { if (!future.isDone) future.cancel(true) }

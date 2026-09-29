@@ -61,10 +61,12 @@ map keys participates in the same chunk transfer path.
 
 ## Environment and remaining release gate
 
-The verified environment is Linux with the JDK 21 Gradle toolchain. The directory
-adapter requires filesystem-provider secure directory handles; it refuses providers
-without them instead of falling back to path-racy I/O. This does not claim support
-for Windows filesystem providers or arbitrary mounted-share semantics.
+The verified environments are Linux (JDK 21 toolchain) and macOS (JDK 25 toolchain). The
+directory adapter requires filesystem-provider secure directory handles; it refuses
+providers without them instead of falling back to path-racy I/O. The macOS provider
+supplies them on JDK 25 but not JDK 21. This does not claim support for Windows
+filesystem providers or arbitrary mounted-share semantics; over SMB, handle pinning
+does not prevent a concurrent directory rename by another machine.
 
 The required **ordinary mounted SMB/NFS share with separate processes on separate
 machines has not been tested**. `findmnt -t nfs,nfs4,cifs` found no such mount here.

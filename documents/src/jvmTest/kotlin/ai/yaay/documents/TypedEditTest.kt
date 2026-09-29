@@ -98,7 +98,7 @@ class TypedEditTest {
     }
 
     @Test fun seededStructuralCommandsConvergeAndPreserveTypes() {
-        repeat(8) { seed ->
+        for (seed in testSeeds(8)) {
             val random = Random(seed)
             val peers = Peers(seed)
             val a = peers.replicas[0]

@@ -169,8 +169,14 @@ Every descendant open/read/create/delete/rename is relative to pinned
 path while a file is being written cannot redirect it into another directory. Random
 empty directory creation occurs directly under the trusted mount root, then moves
 relative to pinned handles. A provider without secure directory handles is explicitly
-refused; local commits remain available and durable. The current verified environment
-is Linux/JDK 21. This does not claim Windows-provider or arbitrary share support.
+refused; local commits remain available and durable. The current verified environments
+are Linux/JDK 21 and macOS/JDK 25; the macOS provider lacks secure directory handles on
+JDK 21. This does not claim Windows-provider or arbitrary share support.
+Pinning holds on local filesystems and NFS, which resolve names against directory
+handles. SMB2 opens by share-relative path, so over SMB a concurrent rename by another
+machine is not prevented by client handles; there the guarantees rest on no
+client-side link traversal, validated publication names, and signature/hash checks
+on read.
 The actual mounted-share release gate must establish the intended deployment provider.
 
 Readiness does not rely on atomic mounted-drive rename or directory flush semantics.

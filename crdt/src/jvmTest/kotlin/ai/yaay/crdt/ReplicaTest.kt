@@ -275,13 +275,14 @@ class ReplicaTest {
     }
 
     @Test fun seededCausalDagsConvergeUnderArbitraryDeliveryAndDuplicates() {
-        repeat(12) { seed ->
+        for (seed in testSeeds(12)) {
             val random = Random(seed)
             val w = World()
             val id = w.create(Shape.RECORD, mapOf("x" to Atom.Number(0.0), "y" to Atom.Number(0.0)))
             repeat(20) { step ->
                 val p = w.peers[random.nextInt(3)]
-                p.commit(listOf(Operation.Assign(id, if (random.nextBoolean()) "x" else "y", Atom.Number(step.toDouble()))))
+                val value = when (random.nextInt(3)) { 0 -> Atom.Number(step.toDouble()); 1 -> Atom.Str("s$step"); else -> Atom.Bool(step % 2 == 0) }
+                p.commit(listOf(Operation.Assign(id, if (random.nextBoolean()) "x" else "y", value)))
                 if (random.nextBoolean()) {
                     val source = w.peers[random.nextInt(3)]
                     source.history.shuffled(random).take(random.nextInt(source.history.size + 1)).forEach { w.send(it, p) }

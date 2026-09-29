@@ -2,6 +2,8 @@ package ai.yaay.crdt
 
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFileAttributeView
+import org.junit.Assume
 import kotlin.test.*
 
 class DirectoryFaultTest {
@@ -131,5 +133,54 @@ class DirectoryFaultTest {
         Files.createSymbolicLink(own, outside)
         assertFailsWith<java.io.IOException> { DirectorySync(w.b, w.share).publish() }
         assertEquals(listOf("sentinel"), Files.list(outside).use { paths -> paths.map { it.fileName.toString() }.toList() })
+    }
+
+    @Test fun publicationsInAnAreaNotOwnedByTheirSignerAreIgnored() = World().use { w ->
+        val edit = w.c.replica.commit { id, _ -> listOf(Operation.Create(id(0), "text", Shape.TEXT)) }
+        DirectorySync(w.c, w.share).publish()
+        // c's correctly signed publications now sit in the area that belongs to a.
+        Files.move(w.area(w.c), w.area(w.a))
+        val poll = DirectorySync(w.b, w.share).poll()
+        assertTrue(poll.deferred > 0)
+        assertFalse(w.b.replica.history().any { it.batch.id == edit.batch.id })
+    }
+    @Test fun payloadWhoseHashDoesNotMatchItsNameIsDeferred() = World().use { w ->
+        val first = BatchCodec.encode(w.c.replica.commit { id, _ -> listOf(Operation.Create(id(0), "text", Shape.TEXT)) })
+        val second = BatchCodec.encode(w.c.replica.commit { id, _ -> listOf(Operation.Create(id(0), "text", Shape.TEXT)) })
+        // A same-size, validly signed substitute is caught only by the name/hash binding.
+        assertEquals(first.size, second.size)
+        DirectorySync(w.c, w.share).publish()
+        val name = "batch-${BatchCodec.hash(first)}"
+        Files.write(w.area(w.c).resolve("$name.payload"), second)
+        val poll = DirectorySync(w.b, w.share).poll()
+        assertTrue(poll.diagnostics.any { it.startsWith("$name.ready") }, poll.diagnostics.toString())
+        assertFalse(w.b.replica.history().any { BatchCodec.encode(it).contentEquals(first) })
+    }
+    @Test fun pollReportsAMissingShareOrWorkspaceAreaAsDeferred() = World().use { w ->
+        val unavailable = DirectoryPoll(0, 1, listOf("Share workspace area unavailable"))
+        assertEquals(unavailable, DirectorySync(w.b, w.share).poll())
+        Files.createDirectories(w.share)
+        assertEquals(unavailable, DirectorySync(w.b, w.share).poll())
+        DirectorySync(w.a, w.share).publish()
+        assertEquals(0, DirectorySync(w.b, w.share).poll().deferred)
+    }
+    @Test fun deniedShareAccessKeepsLocalCommitsAndRecoversWhenRestored() = World().use { w ->
+        DirectorySync(w.a, w.share).publish()
+        Assume.assumeTrue(Files.getFileAttributeView(w.share, PosixFileAttributeView::class.java) != null)
+        Assume.assumeFalse("root bypasses permissions", System.getProperty("user.name") == "root")
+        val edit = w.a.replica.commit { id, _ -> listOf(Operation.Create(id(0), "text", Shape.TEXT)) }
+        val before = w.b.replica.snapshot()
+        val permissions = Files.getPosixFilePermissions(w.share)
+        Files.setPosixFilePermissions(w.share, emptySet())
+        try {
+            // Throwing or reporting deferred are both acceptable; applying or losing anything is not.
+            runCatching { DirectorySync(w.a, w.share).publish() }
+            runCatching { DirectorySync(w.b, w.share).poll() }.onSuccess { assertEquals(0, it.applied) }
+            assertEquals(before, w.b.replica.snapshot())
+        } finally { Files.setPosixFilePermissions(w.share, permissions) }
+        assertTrue(w.a.replica.history().any { it == edit })
+        DirectorySync(w.a, w.share).publish()
+        DirectorySync(w.b, w.share).poll()
+        assertEquals(w.a.replica.snapshot(), w.b.replica.snapshot())
     }
 }

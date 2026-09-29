@@ -4,7 +4,7 @@ plugins {
 
 kotlin {
     jvm()
-    jvmToolchain(21)
+    jvmToolchain(25)
     explicitApi()
 
     sourceSets {
@@ -30,4 +30,6 @@ tasks.register<JavaExec>("runPeer") {
 // Child JVM fault tests need the same complete runtime classpath as the test worker.
 tasks.withType<Test>().configureEach {
     doFirst { systemProperty("yaay.test.classpath", classpath.asPath) }
+    // Randomized tests widen their seed range on request: -Pyaay.test.seeds=N -Pyaay.test.seedStart=S
+    listOf("yaay.test.seeds", "yaay.test.seedStart").forEach { name -> providers.gradleProperty(name).orNull?.let { systemProperty(name, it) } }
 }
