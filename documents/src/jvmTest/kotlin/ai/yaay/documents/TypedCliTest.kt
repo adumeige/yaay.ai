@@ -65,6 +65,43 @@ class TypedCliTest {
         assertEquals(peer("a", "state"), peer("b", "state"))
     }
 
+    @Test fun workspaceTreeBuiltOnOnePeerIsReorganizedOnAnotherAndConverges() {
+        val a = peer("a", "init").value("author")
+        val b = peer("b", "init", a).value("author")
+        peer("a", "admit", b)
+        val schema = root.resolve("schema.yaay")
+        Files.writeString(schema, "type Person = { name: String, bio: Text }")
+        peer("a", "define", schema.toString())
+        val projects = peer("a", "mkdir", "Projects").value("object")
+        val ada = peer("a", "new", "Ada", "Person", """{ name: "Ada", bio: "Mathematician" }""", projects).value("object")
+        val scratch = peer("a", "new", "Scratch", "Text", "\"todo\"").value("object")
+        assertEquals(listOf("Projects/\t$projects", "  Ada\t$ada\tPerson", "Scratch\t$scratch\tText"), peer("a", "tree").trim().lines())
+
+        DurableReplica.open(root.resolve("a"), "demo", validator = ai.yaay.documents.types.TypedMutationValidator()).use { replica ->
+            HttpSyncServer(typedSyncEndpoint(replica, BlobStore(root.resolve("a/chunks")))).use { server ->
+                peer("b", "sync-http", a, URI("http://127.0.0.1:${server.address.port}/sync").toString())
+            }
+        }
+        // B reorganizes and edits; A adds a document concurrently.
+        val archive = peer("b", "mkdir", "Archive").value("object")
+        peer("b", "move", ada, archive)
+        peer("b", "rename", ada, "Ada Lovelace")
+        peer("b", "set", "$ada.Document.content.name", "\"Ada Lovelace\"")
+        peer("a", "new", "Grace", "Person", """{ name: "Grace", bio: "Admiral" }""", projects)
+
+        peer("b", "publish", share.toString())
+        peer("a", "poll", share.toString())
+        peer("a", "publish", share.toString())
+        peer("b", "poll", share.toString())
+
+        val tree = peer("a", "tree")
+        assertEquals(tree, peer("b", "tree"))
+        val lines = tree.trim().lines().map { it.substringBefore('\t') }
+        assertEquals(listOf("Archive/", "  Ada Lovelace", "Projects/", "  Grace", "Scratch"), lines, tree)
+        assertEquals("""{ bio: "Mathematician", name: "Ada Lovelace" }""", show("a", "$ada.Document.content"))
+        assertEquals(peer("a", "state"), peer("b", "state"))
+    }
+
     @Test fun invalidTypedInputIsRejectedWithoutCommitting() {
         peer("a", "init")
         val schema = root.resolve("schema.yaay")

@@ -12,6 +12,8 @@ public sealed interface Value {
     public data class MapEntries(public val entries: Map<String, Value>) : Value
     public data class KeyedEntries(public val entries: Map<KeyValue, Value>) : Value
     public data class Text(public val text: String) : Value
+    /** A value for an `Any` slot, carrying the concrete type it is created with. */
+    public data class Typed(public val type: Type, public val value: Value) : Value
 }
 
 /** Compiles typed edits into one atomic batch inside the replica writer's commit callback. */
@@ -27,9 +29,14 @@ public class TypedEdit(private val id: (Int) -> String, private val before: Snap
     private fun slot(type: Type, value: Value): Atom = when (types.canonical(type)) {
         Type.Scalar.BOOLEAN, Type.Scalar.NUMBER, Type.Scalar.STRING, Type.Scalar.BLOB, is Type.Ref, is Type.Enum ->
             (value as? Value.Atomic)?.atom ?: throw IllegalArgumentException("Expected atomic value")
+        Type.Any -> {
+            val typed = value as? Value.Typed ?: throw IllegalArgumentException("An Any slot needs a value with its type")
+            Atom.Instance(create(typed.type, typed.value))
+        }
         else -> Atom.Instance(create(type, value))
     }
     public fun create(type: Type, value: Value): String = when (val shape = types.structure(type)) {
+        Type.Any -> throw IllegalArgumentException("Any is a slot type; create a value of a concrete type")
         is Type.Record -> {
             require(value is Value.Record && value.fields.keys == shape.fields.keys)
             val fields = shape.fields.mapValues { (field, fieldType) -> slot(fieldType, value.fields.getValue(field)) }

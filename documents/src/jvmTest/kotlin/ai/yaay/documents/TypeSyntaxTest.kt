@@ -94,6 +94,6 @@ class TypeSyntaxTest {
         for (bad in listOf("List", "has space", "")) {
             assertFailsWith<IllegalArgumentException>(bad) { r.commit(listOf(TypeEncoding.publish(r.nextId(0), TypeDefinition(emptyList(), false, Type.Scalar.STRING), bad))) }
         }
-        assertEquals(2, TypeCatalog(r.snapshot).entries.size)
+        assertEquals(2, TypeCatalog(r.snapshot).entries.count { it.id !in ai.yaay.documents.types.builtin.BuiltInTypes.TREE })
     }
 }

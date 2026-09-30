@@ -79,6 +79,7 @@ public object KeyEncoding {
             }
             is Type.Sequence -> { require(value is KeyValue.Sequence); value.items.forEach { recur(shape.element, it) } }
             is Type.MapOf -> { require(value is KeyValue.MapEntries); value.entries.forEach { (key, entry) -> recur(shape.key, key); recur(shape.value, entry) } }
+            Type.Any -> throw IllegalArgumentException("Any cannot be a map key type")
             else -> throw IllegalArgumentException("Unresolved map key type")
         }
     }

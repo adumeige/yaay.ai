@@ -1,6 +1,7 @@
 package ai.yaay.documents.types
 
 import ai.yaay.crdt.*
+import ai.yaay.documents.types.builtin.BuiltInTypes
 
 /**
  * Short object handles for people: the last characters of the author key plus the batch counter and
@@ -33,7 +34,8 @@ public object ObjectHandles {
 public class TypeCatalog(snapshot: Snapshot) {
     public data class Entry(public val id: String, public val name: String?, public val definition: TypeDefinition)
 
-    public val entries: List<Entry> = snapshot.objects.values
+    /** Built-in types first, then published definitions by name. */
+    public val entries: List<Entry> = BuiltInTypes.all.map { Entry(it.id, it.name, it.definition) } + snapshot.objects.values
         .filter { it.type == TypeEncoding.DEFINITION_TYPE && !it.deleted }
         .map { Entry(it.id, (it.fields["name"] as? Atom.Str)?.value, TypeEncoding.definition((it.fields.getValue("value") as Atom.Str).value)) }
         .sortedWith(compareBy({ it.name ?: "" }, { it.id }))

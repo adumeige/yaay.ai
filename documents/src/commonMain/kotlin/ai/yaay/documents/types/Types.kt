@@ -1,6 +1,7 @@
 package ai.yaay.documents.types
 
 import ai.yaay.crdt.*
+import ai.yaay.documents.types.builtin.BuiltInTypes
 
 /** Type definitions are immutable CRDT objects. Names refer to their exact object identity. */
 public sealed interface Type {
@@ -13,6 +14,8 @@ public sealed interface Type {
     public data class Ref(public val target: Type) : Type
     public data class Named(public val id: String, public val arguments: List<Type> = emptyList()) : Type
     public data class Parameter(public val name: String) : Type
+    /** A slot type only: holds an embedded instance of any published type, validated against its own type. */
+    public data object Any : Type
 }
 
 public data class TypeDefinition(public val parameters: List<String>, public val alias: Boolean, public val body: Type)
@@ -31,6 +34,7 @@ public object TypeEncoding {
         is Type.Ref -> "r" + encode(type.target)
         is Type.Named -> "n" + token(type.id) + "${type.arguments.size}:" + type.arguments.joinToString("") { encode(it) }
         is Type.Parameter -> "v" + token(type.name)
+        Type.Any -> "x"
     }
     public fun encode(definition: TypeDefinition): String = (if (definition.alias) "a" else "n") + "${definition.parameters.size}:" + definition.parameters.joinToString("") { token(it) } + encode(definition.body)
     private class Reader(val value: String) {
@@ -58,6 +62,7 @@ public object TypeEncoding {
                 'r' -> Type.Ref(type(depth + 1))
                 'n' -> Type.Named(token(), List(count()) { type(depth + 1) })
                 'v' -> Type.Parameter(token())
+                'x' -> Type.Any
                 else -> throw IllegalArgumentException("Unknown type expression")
             }
         }
@@ -77,6 +82,7 @@ public object TypeEncoding {
 /** Resolves pinned definitions from the author's CRDT snapshot, never a separate mutable registry. */
 public class TypeSystem(private val snapshot: Snapshot) {
     private fun definition(id: String): TypeDefinition {
+        BuiltInTypes.definition(id)?.let { return it }
         val obj = snapshot[id]
         require(obj.type == TypeEncoding.DEFINITION_TYPE && !obj.deleted) { "Unknown published type $id" }
         return TypeEncoding.definition((obj.fields["value"] as? Atom.Str)?.value ?: throw IllegalArgumentException("Malformed type definition"))
@@ -89,7 +95,7 @@ public class TypeSystem(private val snapshot: Snapshot) {
         is Type.MapOf -> Type.MapOf(substitute(type.value, bindings), substitute(type.key, bindings))
         is Type.Ref -> Type.Ref(substitute(type.target, bindings))
         is Type.Named -> type.copy(arguments = type.arguments.map { substitute(it, bindings) })
-        is Type.Scalar, is Type.Enum -> type
+        is Type.Scalar, is Type.Enum, Type.Any -> type
     }
     private fun body(type: Type.Named): Type {
         val def = definition(type.id)
@@ -116,10 +122,14 @@ public class TypeSystem(private val snapshot: Snapshot) {
             is Type.MapOf -> Type.MapOf(recur(type.value), recur(type.key))
             is Type.Ref -> Type.Ref(recur(type.target))
             is Type.Parameter -> throw IllegalArgumentException("Unbound type parameter")
-            is Type.Scalar, is Type.Enum -> type
+            is Type.Scalar, is Type.Enum, Type.Any -> type
         }
     }
-    public fun referenceMatches(id: String, expected: Type): Boolean = assignable(TypeEncoding.decode(snapshot[id].type), expected)
+    public fun referenceMatches(id: String, expected: Type): Boolean = accepts(TypeEncoding.decode(snapshot[id].type), expected)
+    /** Whether a value of [actual] type may fill a slot of [expected] type; `Any` accepts every type. */
+    public fun accepts(actual: Type, expected: Type): Boolean = canonical(expected) == Type.Any || assignable(actual, expected)
+    /** An embedded instance. Tree types are kept out of every other slot, `Any` included, by [checkTreePlacement]. */
+    private fun embeddable(id: String, expected: Type): Boolean = accepts(TypeEncoding.decode(snapshot[id].type), expected)
     public fun assignable(actual: Type, expected: Type): Boolean = canonical(actual) == canonical(expected)
     public fun structure(type: Type, visited: Set<String> = emptySet()): Type = when (val t = canonical(type)) {
         is Type.Named -> { require(t.id !in visited) { "Nominal type has no structural body" }; structure(body(t), visited + t.id) }
@@ -130,19 +140,57 @@ public class TypeSystem(private val snapshot: Snapshot) {
             val def = definition(obj.id)
             val bindings = def.parameters.associateWith { Type.Scalar.BOOLEAN }
             val concrete = substitute(def.body, bindings)
+            checkUserType(def.body, reference = false)
             canonical(concrete)
             structure(Type.Named(obj.id, def.parameters.map { Type.Scalar.BOOLEAN }))
+        }
+    }
+    /** User types may refer to the workspace tree types only as a direct `Ref` target, never embed them. */
+    private fun checkUserType(type: Type, reference: Boolean) {
+        when (type) {
+            is Type.Named -> {
+                require(type.id !in BuiltInTypes.TREE || reference) { "Node, Folder and Document can only be referenced (Ref<...>), not embedded" }
+                type.arguments.forEach { checkUserType(it, reference = false) }
+            }
+            is Type.Ref -> checkUserType(type.target, reference = true)
+            is Type.Record -> type.fields.values.forEach { checkUserType(it, reference = false) }
+            is Type.Sum -> type.variants.values.forEach { it?.let { payload -> checkUserType(payload, reference = false) } }
+            is Type.Sequence -> checkUserType(type.element, reference = false)
+            is Type.MapOf -> {
+                require(type.key != Type.Any) { "Any cannot be a map key type" }
+                checkUserType(type.key, reference = false); checkUserType(type.value, reference = false)
+            }
+            is Type.Scalar, is Type.Enum, is Type.Parameter, Type.Any -> Unit
+        }
+    }
+    /**
+     * Placement of the workspace tree types: a Node is top-level or an item of a folder's children; a Folder
+     * or Document is only ever a Node's payload; a List<Node> only exists as a folder's children.
+     */
+    private fun checkTreePlacement(obj: ResolvedObject, type: Type) {
+        fun typeOf(id: String?): Type? = id?.let { snapshot.objects[it] }?.type?.takeIf { it != TypeEncoding.DEFINITION_TYPE }?.let(TypeEncoding::decode)?.let(::canonical)
+        val canonical = canonical(type)
+        when {
+            canonical == BuiltInTypes.node -> obj.parent?.let { list ->
+                require(typeOf(list) == Type.Sequence(BuiltInTypes.node) && typeOf(snapshot[list].embeddedOwner) == BuiltInTypes.folder) { "A node belongs at the top level or in a folder" }
+            }
+            canonical == BuiltInTypes.folder || canonical == BuiltInTypes.document ->
+                require(typeOf(obj.embeddedOwner) == BuiltInTypes.node) { "Folders and documents exist only inside a node" }
+            canonical == Type.Sequence(BuiltInTypes.node) ->
+                require(typeOf(obj.embeddedOwner) == BuiltInTypes.folder) { "A list of nodes exists only as a folder's children" }
         }
     }
     public fun validateObject(obj: ResolvedObject) {
         if (obj.type == TypeEncoding.DEFINITION_TYPE || obj.deleted) return
         val type = TypeEncoding.decode(obj.type)
         val shape = structure(type)
+        require(shape != Type.Any) { "An object needs a concrete type, not Any" }
+        checkTreePlacement(obj, type)
         fun value(atom: Atom, expected: Type) {
             when (val t = canonical(expected)) {
                 is Type.Ref -> {
                     require(atom is Atom.Ref) { "Reference requires an explicit reference value" }
-                    require(assignable(TypeEncoding.decode(snapshot[atom.id].type), t.target)) { "Wrong referenced type" }
+                    require(accepts(TypeEncoding.decode(snapshot[atom.id].type), t.target)) { "Wrong referenced type" }
                 }
                 is Type.Enum -> require(atom is Atom.Str && atom.value in t.choices)
                 Type.Scalar.BOOLEAN -> require(atom is Atom.Bool)
@@ -151,7 +199,7 @@ public class TypeSystem(private val snapshot: Snapshot) {
                 Type.Scalar.BLOB -> require(atom is Atom.Blob)
                 else -> {
                     require(atom is Atom.Instance) { "Embedded structured value requires an instance" }
-                    require(assignable(TypeEncoding.decode(snapshot[atom.id].type), t)) { "Embedded type mismatch" }
+                    require(embeddable(atom.id, t)) { "Embedded type mismatch" }
                 }
             }
         }
@@ -167,12 +215,12 @@ public class TypeSystem(private val snapshot: Snapshot) {
                 val payload = shape.variants[variant.tag]
                 if (payload == null) require(variant.payload == null) else {
                     val target = variant.payload ?: throw IllegalArgumentException("Missing variant payload")
-                    require(assignable(TypeEncoding.decode(snapshot[target].type), payload))
+                    require(embeddable(target, payload)) { "Variant payload type mismatch" }
                 }
             }
             is Type.Sequence -> {
                 require(obj.shape == Shape.LIST && obj.fields.isEmpty())
-                obj.children.forEach { require(assignable(TypeEncoding.decode(snapshot[it].type), shape.element)) }
+                obj.children.forEach { require(embeddable(it, shape.element)) { "List item type mismatch" } }
             }
             is Type.MapOf -> {
                 require(obj.shape == Shape.MAP)
@@ -180,7 +228,7 @@ public class TypeSystem(private val snapshot: Snapshot) {
                 obj.fields.keys.forEach { KeyEncoding.fromField(this, shape.key, it) }
                 obj.fields.values.forEach { atom ->
                     require(atom is Atom.Instance)
-                    require(assignable(TypeEncoding.decode(snapshot[atom.id].type), shape.value))
+                    require(embeddable(atom.id, shape.value)) { "Map value type mismatch" }
                 }
             }
             Type.Scalar.TEXT -> require(obj.shape == Shape.TEXT && obj.fields.isEmpty())

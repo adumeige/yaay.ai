@@ -17,7 +17,8 @@ import ai.yaay.documents.types.SyntaxReader.Str
  * `true`/`false`, numbers and `"strings"` (also for `Text`); enum choices bare or quoted; `[...]` lists;
  * `{ field: value }` records and maps, where a structured map key is written in the key type's syntax;
  * `Tag`, `Tag(value)` or `Tag { ... }` variants; `ref(@handle)` references; `file("path")` to store a
- * new blob, or `blob("hash", size, ["chunk", ...])` for existing content.
+ * new blob, or `blob("hash", size, ["chunk", ...])` for existing content. An `Any` slot takes its type
+ * first: `Person { name: "Ada" }`, `Text "notes"`, `List<String> ["a"]`.
  *
  * A path addresses a nested object from a handle: `k3Fz9Q:4:0.tags.2` steps through record fields,
  * the active variant's tag, string map keys and list indices.
@@ -92,6 +93,7 @@ public class ValueSyntax(private val snapshot: Snapshot, private val loadBlob: (
     private fun SyntaxReader.value(type: Type, depth: Int): Value {
         require(depth < 128) { "Value nesting exceeds limit" }
         return when (val shape = types.structure(type)) {
+            Type.Any -> { val concrete = TypeSyntax.type(this, catalog); Value.Typed(concrete, value(concrete, depth + 1)) }
             Type.Scalar.TEXT -> Value.Text(string())
             is Type.Record -> Value.Record(record(shape) { value(it, depth + 1) })
             is Type.Sum -> variant(shape, { value(it, depth + 1) }) { tag, payload -> Value.Variant(tag, payload) }
@@ -232,10 +234,10 @@ public class ValueSyntax(private val snapshot: Snapshot, private val loadBlob: (
                 when {
                     payload == null || payloadType == null -> variant.tag
                     types.structure(payloadType) is Type.Record -> "${variant.tag} ${render(payload, depth + 1)}"
-                    else -> "${variant.tag}(${render(payload, depth + 1)})"
+                    else -> "${variant.tag}(${slot(payloadType, payload, depth)})"
                 }
             }
-            is Type.Sequence -> items(id).joinToString(", ", "[", "]") { render(it, depth + 1) }
+            is Type.Sequence -> items(id).joinToString(", ", "[", "]") { slot(shape.element, it, depth) }
             is Type.MapOf -> {
                 val stringKeys = types.canonical(shape.key) == Type.Scalar.STRING
                 fields(obj.fields.entries
@@ -250,11 +252,17 @@ public class ValueSyntax(private val snapshot: Snapshot, private val loadBlob: (
             else -> atom(shape, obj.fields["value"], depth)
         }
     }
+    /** An embedded value; in an `Any` slot it is prefixed with its concrete type, as it is written. */
+    private fun slot(expected: Type, id: String, depth: Int): String {
+        val value = render(id, depth + 1)
+        val obj = snapshot.objects[id]
+        return if (types.canonical(expected) == Type.Any && obj != null && !obj.deleted) "${label(typeOf(id))} $value" else value
+    }
     private fun fields(entries: List<Pair<String, String>>): String =
         if (entries.isEmpty()) "{}" else entries.joinToString(", ", "{ ", " }") { (key, value) -> "$key: $value" }
     private fun atom(expected: Type, atom: Atom?, depth: Int): String = when (atom) {
         null -> "<missing>"
-        is Atom.Instance -> render(atom.id, depth + 1)
+        is Atom.Instance -> slot(expected, atom.id, depth)
         is Atom.Ref -> "ref(@${ObjectHandles.short(atom.id)})"
         is Atom.Bool -> atom.value.toString()
         is Atom.Number -> number(atom.value)

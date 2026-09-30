@@ -93,7 +93,25 @@ encoded definition in `value` and may carry an optional `name`: display metadata
 non-reserved identifier, immutable with the definition and not part of its identity.
 Several versions may share a name; references always pin the definition's object ID.
 The human-readable declaration syntax (`TypeSyntax`) compiles to this encoding and is
-not itself stored. Typed map keys are immutable,
+not itself stored.
+
+`Any` (tag `x`) is a slot type: it holds an embedded instance of any concrete type, which
+is validated against the type it records. No object has type `Any`, and `Any` cannot be a
+map key type. Built-in definitions are known to every peer without being published:
+`yaay:builtin:folder:1` (`Folder = { title: String, children: List<Node> }`),
+`yaay:builtin:document:1` (`Document = { title: String, content: Any }`) and
+`yaay:builtin:node:1` (`Node = Folder(Folder) | Document(Document)`). Their IDs cannot
+collide with published objects, whose IDs begin with a verified author key. The names
+`Any`, `Node`, `Folder` and `Document` are reserved.
+
+The workspace tree is this typed data. Live `Node`s without a parent form the top level;
+a folder's `children` list holds its nodes; moving a node is a `Place`, so its identity
+and references survive. Validation keeps the tree well-formed: a `Node` is top-level or
+in a folder's children, a `Folder` or `Document` exists only as a node's payload, and a
+`List<Node>` only as a folder's children. User definitions may name tree types only as a
+direct `Ref` target, so documents never embed documents. A node is visible when it, its
+payload and every ancestor are live: deleting a folder hides its subtree, while a node
+concurrently moved out stays visible where its placement resolves. Typed map keys are immutable,
 canonical finite values; existing string keys remain raw field names. The values
 selected by keys are independent identified CRDT instances.
 

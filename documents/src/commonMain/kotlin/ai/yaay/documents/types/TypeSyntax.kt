@@ -20,7 +20,9 @@ public data class TypeDeclaration(public val name: String, public val definition
  *
  * Scalars: `Boolean`, `Number`, `String`, `Text` (collaborative), `Blob`. Constructors: `List<T>`,
  * `Map<V>` (string keys), `Map<K, V>`, `Ref<T>`, `enum(a, b)`, records `{ field: T }` and sums
- * `Tag | Tag { ... } | Tag(T)`; a single-variant sum is written with a leading `|`. A published type is
+ * `Tag | Tag { ... } | Tag(T)`; a single-variant sum is written with a leading `|`. `Any` is a slot for an
+ * embedded value of any type (a document's content). Built-in `Node`, `Folder` and `Document` form the
+ * workspace tree. A published type is
  * named by its name, or `Name@handle` when several versions share that name.
  */
 public object TypeSyntax {
@@ -28,9 +30,10 @@ public object TypeSyntax {
         "Boolean" to Type.Scalar.BOOLEAN, "Number" to Type.Scalar.NUMBER, "String" to Type.Scalar.STRING,
         "Text" to Type.Scalar.TEXT, "Blob" to Type.Scalar.BLOB,
     )
-    private val constructors = setOf("List", "Map", "Ref", "enum")
+    private val constructors = setOf("List", "Map", "Ref", "enum", "Any")
     private val keywords = setOf("type", "alias")
-    internal val reserved: Set<String> = scalars.keys + constructors + keywords
+    /** Built-in type names cannot be published by users, so they always mean the built-in. */
+    internal val reserved: Set<String> = scalars.keys + constructors + keywords + ai.yaay.documents.types.builtin.BuiltInTypes.all.map { it.name }
 
     /**
      * Parses a declaration file. Declarations may refer to each other in any order, including recursively;
@@ -62,6 +65,9 @@ public object TypeSyntax {
         return Parser(reader, catalog, emptyMap(), emptySet()).type().also { reader.expectEnd() }
     }
 
+    /** Reads one type expression from within a larger text, e.g. the type prefix of an `Any` value. */
+    internal fun type(reader: SyntaxReader, catalog: TypeCatalog): Type = Parser(reader, catalog, emptyMap(), emptySet()).type()
+
     public fun render(declaration: TypeDeclaration, label: (String) -> String): String {
         val definition = declaration.definition
         val parameters = if (definition.parameters.isEmpty()) "" else definition.parameters.joinToString(", ", "<", ">")
@@ -85,6 +91,7 @@ public object TypeSyntax {
         is Type.Ref -> "Ref<${render(type.target, label)}>"
         is Type.Named -> label(type.id) + if (type.arguments.isEmpty()) "" else type.arguments.joinToString(", ", "<", ">") { render(it, label) }
         is Type.Parameter -> type.name
+        Type.Any -> "Any"
     }
     private fun record(type: Type.Record, label: (String) -> String): String =
         if (type.fields.isEmpty()) "{}" else type.fields.entries.joinToString(", ", "{ ", " }") { (name, field) -> "${SyntaxReader.nameOrQuoted(name)}: ${render(field, label)}" }
@@ -190,6 +197,7 @@ public object TypeSyntax {
             val name = (token as? Ident ?: reader.fail(token, "Expected a type")).value
             scalars[name]?.let { return it }
             return when (name) {
+                "Any" -> Type.Any
                 "List" -> Type.Sequence(single(token, "List"))
                 "Ref" -> Type.Ref(single(token, "Ref"))
                 "Map" -> {

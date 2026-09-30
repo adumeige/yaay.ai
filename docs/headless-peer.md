@@ -120,6 +120,30 @@ quoted enum choices, `[...]`, `{ field: value }`, `Tag`, `Tag(value)`, `Tag { ..
 typed validation as the library; an invalid value reports its position and commits nothing.
 Typed content synchronizes with the HTTP and directory commands below.
 
+## Workspace tree
+
+Folders and documents are built-in typed data. A document is a shell with a title and
+content of any type:
+
+```sh
+peer "mkdir Projects"                                   # prints object=<folder handle>
+peer "new Ada Person '{ name: \"Ada\", bio: \"Mathematician\" }' FOLDER"
+peer "new Scratch Text '\"todo\"'"                        # top level
+peer tree
+```
+
+```
+Projects/	k3Fz9Q:5:0
+  Ada	k3Fz9Q:6:0	Person
+Scratch	k3Fz9Q:7:0	Text
+```
+
+`move NODE FOLDER` (or `root`) reorganizes and keeps the node's identity, so references
+to the document still resolve. `rename NODE TITLE` retitles a folder or document, and
+`delete NODE` removes it; deleting a folder hides its contents. A document's content is
+reached through its path, e.g. `set NODE.Document.content.name '"Ada Lovelace"'`. In an
+`Any` slot a value is written with its type first: `Person { name: "Ada" }`, `Text "notes"`.
+
 ## Editing and membership
 
 `create-text` prints a stable object ID. `edit-text OBJECT START DELETE INSERT` uses
