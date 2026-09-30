@@ -73,6 +73,53 @@ OS/JDK versions, filesystem/share type and mount options, commands, process term
 points, reconnection outcomes and final states when performing that release gate.
 No such separate-machine gate has been run in this environment yet.
 
+## Typed content
+
+Declare types in a file (or pass `-` to read standard input) and publish them in one batch.
+Declarations may refer to each other in any order, including recursively:
+
+```
+# schema.yaay
+type Person = { name: String, bio: Text, tags: List<String>, status: Status, manager: Maybe<Ref<Person>> }
+type Status = Active | Suspended { reason: Text }
+type Maybe<T> = Some(T) | None
+alias Tags = List<String>
+```
+
+Scalars are `Boolean`, `Number`, `String`, `Text` (collaborative) and `Blob`; constructors are
+`List<T>`, `Map<V>` (string keys), `Map<K, V>`, `Ref<T>`, `enum(a, b)`, records `{ field: T }`
+and sums `Tag | Tag { ... } | Tag(T)` (a single-variant sum starts with `|`). Names are display
+metadata: publishing `Person` again creates a new version with a new identity, and when several
+versions share a name you write `Person@<handle>`.
+
+```sh
+peer() { ./gradlew -q :documents:runPeer --args="/tmp/yaay-a demo $*"; }
+peer define /absolute/path/schema.yaay
+peer types
+peer "create Person '{ name: \"Ada\", bio: \"Mathematician\", tags: [\"math\"], status: Active, manager: None }'"
+peer show
+```
+
+Objects print as short handles (`k3Fz9Q:4:0`: the end of the author key, batch counter,
+operation index); a longer author suffix or the full ID also works. A path reaches nested
+values through record fields, the active variant's tag, string map keys and list indices:
+
+| Command | Effect |
+| --- | --- |
+| `show [PATH]` | Root objects, or one object, as `handle  type  value` |
+| `set PATH.FIELD VALUE` | Assign a record field, map entry or scalar (`set H.manager.Some 'ref(@k3Fz9Q:4:0)'`) |
+| `put MAP KEY VALUE` | Assign a map entry; structured keys use the key type's value syntax |
+| `insert LIST VALUE [first\|ITEM]` | Append, or insert at the start or after an item |
+| `switch SUM VARIANT` | Select a variant, e.g. `'Suspended { reason: "leave" }'` |
+| `delete PATH`, `move ITEM LIST\|root [first\|ITEM]` | Delete or reposition |
+| `edit-text PATH START DELETE INSERT` | Edit collaborative text |
+
+Values are parsed against their type: `true`, `1.5`, `"string"` (also for `Text`), bare or
+quoted enum choices, `[...]`, `{ field: value }`, `Tag`, `Tag(value)`, `Tag { ... }`,
+`ref(@handle)`, and `file("/path")` to store a new blob. Every edit goes through the same
+typed validation as the library; an invalid value reports its position and commits nothing.
+Typed content synchronizes with the HTTP and directory commands below.
+
 ## Editing and membership
 
 `create-text` prints a stable object ID. `edit-text OBJECT START DELETE INSERT` uses

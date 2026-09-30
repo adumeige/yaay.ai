@@ -69,7 +69,9 @@ public object TypeEncoding {
         require(parameters.distinct().size == parameters.size)
         TypeDefinition(parameters, alias, type()).also { require(at == value.length && encode(it) == value) }
     }
-    public fun publish(id: String, definition: TypeDefinition): Operation.Create = Operation.Create(id, DEFINITION_TYPE, Shape.REGISTER, mapOf("value" to Atom.Str(encode(definition))))
+    /** [name] is optional display metadata; the definition's identity is always [id]. */
+    public fun publish(id: String, definition: TypeDefinition, name: String? = null): Operation.Create =
+        Operation.Create(id, DEFINITION_TYPE, Shape.REGISTER, mapOf("value" to Atom.Str(encode(definition))) + (name?.let { mapOf("name" to Atom.Str(it)) } ?: emptyMap()))
 }
 
 /** Resolves pinned definitions from the author's CRDT snapshot, never a separate mutable registry. */
@@ -223,7 +225,10 @@ public class TypedMutationValidator : MutationValidator {
             require(target !in immutable) { "Published type definitions are immutable" }
         }
         after.objects.values.filter { it.type == TypeEncoding.DEFINITION_TYPE }.forEach {
-            require(it.shape == Shape.REGISTER && it.fields.keys == setOf("value") && !it.deleted)
+            require(it.shape == Shape.REGISTER && "value" in it.fields && it.fields.keys.all { key -> key == "value" || key == "name" } && !it.deleted)
+            it.fields["name"]?.let { name ->
+                require(name is Atom.Str && SyntaxReader.isIdentifier(name.value) && name.value !in TypeSyntax.reserved) { "A type name must be a non-reserved identifier" }
+            }
         }
         val types = TypeSystem(after)
         types.validateDefinitions()

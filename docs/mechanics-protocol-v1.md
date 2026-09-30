@@ -88,7 +88,12 @@ Published types use immutable CRDT objects with bootstrap type
 `yaay:type-definition:1`. The portable type grammar in `TypeEncoding` uses tagged,
 length-prefixed strings with pinned nominal/alias IDs; aliases preserve structural
 assignability and nominal definitions preserve identity. Type/key grammar lengths
-count UTF-16 units and nesting is limited to 128. Typed map keys are immutable,
+count UTF-16 units and nesting is limited to 128. A definition object holds the
+encoded definition in `value` and may carry an optional `name`: display metadata, a
+non-reserved identifier, immutable with the definition and not part of its identity.
+Several versions may share a name; references always pin the definition's object ID.
+The human-readable declaration syntax (`TypeSyntax`) compiles to this encoding and is
+not itself stored. Typed map keys are immutable,
 canonical finite values; existing string keys remain raw field names. The values
 selected by keys are independent identified CRDT instances.
 
